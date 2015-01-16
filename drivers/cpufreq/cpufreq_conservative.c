@@ -30,6 +30,7 @@
 /* Conservative governor macros */
 #define DEF_FREQUENCY_UP_THRESHOLD		(90)
 #define DEF_FREQUENCY_DOWN_THRESHOLD		(30)
+#define DEF_FREQUENCY_TWOSTEP_THRESHOLD	(70)
 #define DEF_FREQUENCY_STEP			(5)
 #define DEF_SAMPLING_DOWN_FACTOR		(1)
 #define MAX_SAMPLING_DOWN_FACTOR		(10)
@@ -77,7 +78,7 @@ static void cs_check_cpu(int cpu, unsigned int load)
 		return;
 
 	/* Check for frequency increase */
-	if (load > cs_tuners->up_threshold) {
+	if (load > DEF_FREQUENCY_TWOSTEP_THRESHOLD) {
 		dbs_info->down_skip = 0;
 
 		/* if we are already at full speed then break out early */
@@ -86,8 +87,15 @@ static void cs_check_cpu(int cpu, unsigned int load)
 
 		if (boosted && policy->cur < BOOST_FREQ_VAL)
 			dbs_info->requested_freq = BOOST_FREQ_VAL;
-		else
-			dbs_info->requested_freq += get_freq_target(cs_tuners, policy);
+		else {
+			if (load < cs_tuners->up_threshold && cs_tuners->twostep_counter++ < 2)
+				dbs_info->requested_freq = policy->max / 2;
+			else {
+				dbs_info->requested_freq += get_freq_target(cs_tuners, policy);
+				cs_tuners->twostep_counter = 0;
+			}
+		}
+
 
 		if (dbs_info->requested_freq > policy->max)
 			dbs_info->requested_freq = policy->max;
@@ -112,6 +120,9 @@ static void cs_check_cpu(int cpu, unsigned int load)
 		 */
 		if (policy->cur == policy->min)
 			return;
+
+		/* we're scaling down, so reset the counter */
+		cs_tuners->twostep_counter = 0;
 
 		freq_target = get_freq_target(cs_tuners, policy);
 		if (dbs_info->requested_freq > freq_target) {
@@ -357,6 +368,7 @@ static int cs_init(struct dbs_data *dbs_data)
 	tuners->sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR;
 	tuners->ignore_nice_load = 0;
 	tuners->freq_step = DEF_FREQUENCY_STEP;
+	tuners->twostep_counter = 0;
 
 	dbs_data->tuners = tuners;
 

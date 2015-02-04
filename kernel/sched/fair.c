@@ -3574,7 +3574,7 @@ find_idlest_group(struct sched_domain *sd, struct task_struct *p,
 		if (!packing_cpus)
 			continue;
 
-		if (sd_flag & SD_BALANCE_WAKE)
+		if (load_idx & SD_BALANCE_WAKE)
 			power = group->sgp->power;
 		else
 			power = group->sgp->power_available;

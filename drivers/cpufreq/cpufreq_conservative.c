@@ -40,9 +40,9 @@
 static DEFINE_PER_CPU(struct cs_cpu_dbs_info_s, cs_cpu_dbs_info);
 
 static inline unsigned int get_freq_target(struct cs_dbs_tuners *cs_tuners,
-					   struct cpufreq_policy *policy)
+					   unsigned int freq_mult)
 {
-	unsigned int freq_target = (cs_tuners->freq_step * policy->max) / 100;
+	unsigned int freq_target = (cs_tuners->freq_step * freq_mult) / 100;
 
 	/* max freq cannot be less than 100. But who knows... */
 	if (unlikely(freq_target == 0))
@@ -79,7 +79,8 @@ static void cs_check_cpu(int cpu, unsigned int load)
 
 	/* Check for frequency increase */
 	if (load > DEF_FREQUENCY_TWOSTEP_THRESHOLD) {
-		dbs_info->down_skip = 0;
+		if (load >= cs_tuners->up_threshold)
+			dbs_info->down_skip = 0;
 
 		/* if we are already at full speed then break out early */
 		if (dbs_info->requested_freq == policy->max)
@@ -89,9 +90,10 @@ static void cs_check_cpu(int cpu, unsigned int load)
 			dbs_info->requested_freq = BOOST_FREQ_VAL;
 		else {
 			if (load < cs_tuners->up_threshold && cs_tuners->twostep_counter++ < 2)
-				dbs_info->requested_freq = policy->max / 2;
+				dbs_info->requested_freq += get_freq_target(cs_tuners, policy->max >> 2);
 			else {
-				dbs_info->requested_freq += get_freq_target(cs_tuners, policy);
+				if (load >= cs_tuners->up_threshold)
+					dbs_info->requested_freq += get_freq_target(cs_tuners, policy->max);
 				cs_tuners->twostep_counter = 0;
 			}
 		}
@@ -99,6 +101,9 @@ static void cs_check_cpu(int cpu, unsigned int load)
 
 		if (dbs_info->requested_freq > policy->max)
 			dbs_info->requested_freq = policy->max;
+			
+		if (dbs_info->requested_freq == policy->cur)
+			return;
 
 		__cpufreq_driver_target(policy, dbs_info->requested_freq,
 			CPUFREQ_RELATION_H);
@@ -124,7 +129,7 @@ static void cs_check_cpu(int cpu, unsigned int load)
 		/* we're scaling down, so reset the counter */
 		cs_tuners->twostep_counter = 0;
 
-		freq_target = get_freq_target(cs_tuners, policy);
+		freq_target = get_freq_target(cs_tuners, policy->max);
 		if (dbs_info->requested_freq > freq_target) {
 			dbs_info->requested_freq -= freq_target;
 			if (dbs_info->requested_freq < policy->min)
